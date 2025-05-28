@@ -6,16 +6,13 @@ const register = async (req, res) => {
   try {
     const { username, email, password } = req.body;
 
-    // Check if user exists
     const existingUser = await User.findOne({ $or: [{ email }, { username }] });
     if (existingUser) {
       return res.status(400).json({ message: "User already exists" });
     }
 
-    // Hash password
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    // Create user
     const newUser = new User({ username, email, password: hashedPassword });
     await newUser.save();
 
@@ -30,14 +27,12 @@ const login = async (req, res) => {
   try {
     const { email, password } = req.body;
 
-    // Find user
-    const user = await User.findOne({ email }).select("+password"); // Important:  Select password
+    const user = await User.findOne({ email }).select("+password");
 
     if (!user || !(await bcrypt.compare(password, user.password))) {
       return res.status(401).json({ message: "Invalid credentials" });
     }
 
-    // Generate token
     const token = jwt.sign({ userId: user._id }, process.env.JWT_SECRET, {
       expiresIn: "1h",
     });
@@ -50,7 +45,6 @@ const login = async (req, res) => {
 };
 
 const logout = (req, res) => {
-  console.log(`aqui`);
   res.json({ message: "Logged out (token should be deleted client-side)" });
 };
 
