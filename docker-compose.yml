@@ -1,0 +1,24 @@
+services:
+  db:
+    image: mongo:latest
+    ports:
+      - "27017:27017"
+    volumes:
+      - db_data:/data/db
+    environment:
+      MONGO_INITDB_DATABASE: restaurants
+  app:
+    build: .
+    ports:
+      - "3000:3000"
+    depends_on:
+      - db
+    environment:
+      MONGODB_URI: mongodb://db:27017/restaurants
+      JWT_SECRET: $JWT_SECRET
+      GOOGLE_MAPS_API_KEY: $GOOGLE_MAPS_API_KEY
+    volumes:
+      - ./config:/app/config
+
+volumes:
+  db_data:
