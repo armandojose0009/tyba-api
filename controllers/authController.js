@@ -1,6 +1,7 @@
 const User = require("@models/user");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
+const Token = require("@models/token");
 
 const register = async (req, res) => {
   try {
@@ -30,7 +31,7 @@ const login = async (req, res) => {
   try {
     const { email, password } = req.body;
 
-    const user = await User.findOne({ email }).select("+password");
+    const user = await User.findOne({ email });
 
     if (!user || !(await bcrypt.compare(password, user.password))) {
       return res.status(401).json({ message: "Invalid credentials" });
@@ -40,6 +41,12 @@ const login = async (req, res) => {
       expiresIn: "1h",
     });
 
+    await Token.create({
+      userId: user._id,
+      token: token,
+      status: "active",
+    });
+
     return res.json({ token });
   } catch (error) {
     console.error(error);
@@ -47,10 +54,28 @@ const login = async (req, res) => {
   }
 };
 
-const logout = (req, res) => {
-  return res.json({
-    message: "Logged out (token should be deleted client-side)",
-  });
+const logout = async (req, res) => {
+  const token = req.header("Authorization")?.replace("Bearer ", "");
+
+  if (!token) {
+    return res.json({ message: "Logged out (no token provided)" });
+  }
+
+  try {
+    const updatedToken = await Token.findOneAndUpdate(
+      { token },
+      { status: "inactive" }
+    );
+
+    if (updatedToken) {
+      return res.json({ message: "Logged out successfully" });
+    } else {
+      return res.status(404).json({ message: "Token not found" });
+    }
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ message: "Logout failed" });
+  }
 };
 
 module.exports = { register, login, logout };

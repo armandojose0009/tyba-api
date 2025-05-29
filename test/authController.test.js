@@ -1,37 +1,33 @@
+const { register, login, logout } = require("@controllers/authController");
 const User = require("@models/user");
+const Token = require("@models/token");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
+const mongoose = require("mongoose");
 
-const { register, login, logout } = require("@controllers/authController");
+jest.mock("@models/user");
+jest.mock("@models/token");
+jest.mock("bcryptjs");
+jest.mock("jsonwebtoken");
 
-jest.mock("@models/user", () => {
-  const MockUser = jest.fn().mockImplementation((data) => {
-    return {
-      ...data,
-      save: jest.fn(),
-    };
-  });
-
-  MockUser.findOne = jest.fn();
-  return MockUser;
-});
-
-jest.mock("bcryptjs", () => ({
-  hash: jest.fn(),
-  compare: jest.fn(),
-}));
-
-jest.mock("jsonwebtoken", () => ({
-  sign: jest.fn(),
-}));
-
-describe("Auth Controller", () => {
+describe("Auth Controllers", () => {
   let req;
   let res;
 
   beforeEach(() => {
-    jest.clearAllMocks();
+    User.findOne.mockReset();
+    User.create.mockReset();
+    Token.findOne.mockReset();
+    Token.create.mockReset();
+    Token.findOneAndUpdate.mockReset();
+    bcrypt.hash.mockReset();
+    bcrypt.compare.mockReset();
+    jwt.sign.mockReset();
 
+    req = {
+      body: {},
+      headers: {},
+    };
     res = {
       status: jest.fn().mockReturnThis(),
       json: jest.fn(),
@@ -40,32 +36,30 @@ describe("Auth Controller", () => {
 
   describe("register", () => {
     it("should register a new user successfully", async () => {
-      req = {
-        body: {
-          username: "testuser",
-          email: "test@example.com",
-          password: "password123",
-        },
+      const mockUserData = {
+        username: "testuser",
+        email: "test@example.com",
+        password: "password123",
       };
-
+      req.body = mockUserData;
       User.findOne.mockResolvedValue(null);
-
-      bcrypt.hash.mockResolvedValue("hashedPassword123");
+      bcrypt.hash.mockResolvedValue("hashedPassword");
+      User.create.mockResolvedValue(mockUserData);
 
       await register(req, res);
 
       expect(User.findOne).toHaveBeenCalledWith({
-        $or: [{ email: "test@example.com" }, { username: "testuser" }],
+        $or: [
+          { email: mockUserData.email },
+          { username: mockUserData.username },
+        ],
       });
-      expect(bcrypt.hash).toHaveBeenCalledWith("password123", 10);
-
-      expect(User).toHaveBeenCalledWith({
-        username: "testuser",
-        email: "test@example.com",
-        password: "hashedPassword123",
+      expect(bcrypt.hash).toHaveBeenCalledWith(mockUserData.password, 10);
+      expect(User.create).toHaveBeenCalledWith({
+        username: mockUserData.username,
+        email: mockUserData.email,
+        password: "hashedPassword",
       });
-
-      expect(User.mock.results[0].value.save).toHaveBeenCalled();
       expect(res.status).toHaveBeenCalledWith(201);
       expect(res.json).toHaveBeenCalledWith({
         message: "User registered successfully",
@@ -73,72 +67,196 @@ describe("Auth Controller", () => {
     });
 
     it("should return 400 if user already exists", async () => {
-      req = {
-        body: {
-          username: "existinguser",
-          email: "existing@example.com",
-          password: "password123",
-        },
-      };
-
-      User.findOne.mockResolvedValue({
+      const mockUserData = {
         username: "existinguser",
         email: "existing@example.com",
-      });
+        password: "password123",
+      };
+      req.body = mockUserData;
+      User.findOne.mockResolvedValue(mockUserData);
 
       await register(req, res);
 
-      expect(User.findOne).toHaveBeenCalled();
-      expect(bcrypt.hash).not.toHaveBeenCalled();
-      expect(User).not.toHaveBeenCalled();
+      expect(User.findOne).toHaveBeenCalledWith({
+        $or: [
+          { email: mockUserData.email },
+          { username: mockUserData.username },
+        ],
+      });
       expect(res.status).toHaveBeenCalledWith(400);
       expect(res.json).toHaveBeenCalledWith({ message: "User already exists" });
+      expect(bcrypt.hash).not.toHaveBeenCalled();
+      expect(User.create).not.toHaveBeenCalled();
     });
 
-    it("should return 500 if registration fails due to server error", async () => {
-      req = {
-        body: {
-          username: "erroruser",
-          email: "error@example.com",
-          password: "password123",
-        },
+    it("should return 500 if registration fails", async () => {
+      const mockUserData = {
+        username: "testuser",
+        email: "test@example.com",
+        password: "password123",
       };
-
+      req.body = mockUserData;
       User.findOne.mockResolvedValue(null);
-
-      bcrypt.hash.mockResolvedValue("hashedPassword123");
-
-      User.mockImplementationOnce((data) => ({
-        ...data,
-        save: jest.fn().mockRejectedValue(new Error("Database error")),
-      }));
-
-      const consoleErrorSpy = jest
-        .spyOn(console, "error")
-        .mockImplementation(() => {});
+      bcrypt.hash.mockRejectedValue(new Error("Hashing failed"));
 
       await register(req, res);
 
-      expect(User.findOne).toHaveBeenCalled();
-      expect(bcrypt.hash).toHaveBeenCalled();
-      expect(User).toHaveBeenCalled();
-      expect(User.mock.results[0].value.save).toHaveBeenCalled();
+      expect(User.findOne).toHaveBeenCalledWith({
+        $or: [
+          { email: mockUserData.email },
+          { username: mockUserData.username },
+        ],
+      });
+      expect(bcrypt.hash).toHaveBeenCalledWith(mockUserData.password, 10);
       expect(res.status).toHaveBeenCalledWith(500);
       expect(res.json).toHaveBeenCalledWith({ message: "Registration failed" });
-      expect(consoleErrorSpy).toHaveBeenCalledWith(expect.any(Error));
-      consoleErrorSpy.mockRestore();
+      expect(User.create).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("login", () => {
+    it("should log in a user successfully and return a token", async () => {
+      const mockUserData = {
+        _id: new mongoose.Types.ObjectId(),
+        email: "test@example.com",
+        password: "hashedPassword",
+      };
+      req.body = { email: mockUserData.email, password: "password123" };
+
+      const mockSelectResult = { ...mockUserData };
+      const mockFindOneResult = {
+        select: jest.fn().mockResolvedValue(mockSelectResult),
+      };
+      User.findOne.mockResolvedValue(mockFindOneResult);
+
+      bcrypt.compare.mockResolvedValue(true);
+      const mockToken = "mockedToken";
+      jwt.sign.mockReturnValue(mockToken);
+      Token.create.mockResolvedValue({
+        userId: mockUserData._id,
+        token: mockToken,
+        status: "active",
+      });
+
+      await login(req, res);
+
+      expect(User.findOne).toHaveBeenCalledWith({ email: mockUserData.email });
+
+      expect(res.json).toHaveBeenCalledWith({ token: mockToken });
+    });
+
+    it("should return 401 for invalid credentials (user not found)", async () => {
+      req.body = { email: "nonexistent@example.com", password: "password123" };
+      User.findOne.mockResolvedValue(null);
+
+      await login(req, res);
+
+      expect(User.findOne).toHaveBeenCalledWith({ email: req.body.email });
+      expect(res.status).toHaveBeenCalledWith(401);
+      expect(res.json).toHaveBeenCalledWith({ message: "Invalid credentials" });
+      expect(bcrypt.compare).not.toHaveBeenCalled();
+      expect(jwt.sign).not.toHaveBeenCalled();
+      expect(Token.create).not.toHaveBeenCalled();
+    });
+
+    it("should return 401 for invalid credentials (incorrect password)", async () => {
+      const mockUserData = {
+        _id: new mongoose.Types.ObjectId(),
+        email: "test@example.com",
+        password: "hashedPassword",
+      };
+      req.body = { email: mockUserData.email, password: "wrongPassword" };
+
+      const mockSelectResult = { ...mockUserData };
+      const mockFindOneResult = {
+        select: jest.fn().mockResolvedValue(mockSelectResult),
+      };
+      User.findOne.mockResolvedValue(mockFindOneResult);
+
+      bcrypt.compare.mockResolvedValue(false);
+
+      await login(req, res);
+
+      expect(User.findOne).toHaveBeenCalledWith({ email: req.body.email });
+
+      expect(res.status).toHaveBeenCalledWith(401);
+      expect(res.json).toHaveBeenCalledWith({ message: "Invalid credentials" });
+      expect(jwt.sign).not.toHaveBeenCalled();
+      expect(Token.create).not.toHaveBeenCalled();
+    });
+
+    it("should return 500 if login fails", async () => {
+      req.body = { email: "test@example.com", password: "password123" };
+      User.findOne.mockRejectedValue(new Error("Database error"));
+
+      await login(req, res);
+
+      expect(User.findOne).toHaveBeenCalledWith({ email: req.body.email });
+      expect(res.status).toHaveBeenCalledWith(500);
+      expect(res.json).toHaveBeenCalledWith({ message: "Login failed" });
+      expect(bcrypt.compare).not.toHaveBeenCalled();
+      expect(jwt.sign).not.toHaveBeenCalled();
+      expect(Token.create).not.toHaveBeenCalled();
     });
   });
 
   describe("logout", () => {
-    it("should return a logout message", () => {
-      req = {};
-
-      logout(req, res);
-
-      expect(res.json).toHaveBeenCalledWith({
-        message: "Logged out (token should be deleted client-side)",
+    it("should successfully log out a user by inactivating the token", async () => {
+      const mockToken = "mockedAuthToken";
+      req.headers.authorization = `Bearer ${mockToken}`;
+      Token.findOneAndUpdate.mockResolvedValue({
+        token: mockToken,
+        status: "inactive",
       });
+
+      await logout(req, res);
+
+      expect(Token.findOneAndUpdate).toHaveBeenCalledWith(
+        { token: mockToken },
+        { status: "inactive" }
+      );
+      expect(res.json).toHaveBeenCalledWith({
+        message: "Logged out successfully",
+      });
+    });
+
+    it("should return a success message if no token is provided", async () => {
+      await logout(req, res);
+
+      expect(Token.findOneAndUpdate).not.toHaveBeenCalled();
+      expect(res.json).toHaveBeenCalledWith({
+        message: "Logged out (no token provided)",
+      });
+    });
+
+    it("should return 404 if the token is not found", async () => {
+      const mockToken = "mockedAuthToken";
+      req.headers.authorization = `Bearer ${mockToken}`;
+      Token.findOneAndUpdate.mockResolvedValue(null);
+
+      await logout(req, res);
+
+      expect(Token.findOneAndUpdate).toHaveBeenCalledWith(
+        { token: mockToken },
+        { status: "inactive" }
+      );
+      expect(res.status).toHaveBeenCalledWith(404);
+      expect(res.json).toHaveBeenCalledWith({ message: "Token not found" });
+    });
+
+    it("should return 500 if logout fails", async () => {
+      const mockToken = "mockedAuthToken";
+      req.headers.authorization = `Bearer ${mockToken}`;
+      Token.findOneAndUpdate.mockRejectedValue(new Error("Database error"));
+
+      await logout(req, res);
+
+      expect(Token.findOneAndUpdate).toHaveBeenCalledWith(
+        { token: mockToken },
+        { status: "inactive" }
+      );
+      expect(res.status).toHaveBeenCalledWith(500);
+      expect(res.json).toHaveBeenCalledWith({ message: "Logout failed" });
     });
   });
 });
