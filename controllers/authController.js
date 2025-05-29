@@ -13,13 +13,16 @@ const register = async (req, res) => {
 
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    const newUser = new User({ username, email, password: hashedPassword });
-    await newUser.save();
+    await User.create({
+      username,
+      email,
+      password: hashedPassword,
+    });
 
-    res.status(201).json({ message: "User registered successfully" });
+    return res.status(201).json({ message: "User registered successfully" });
   } catch (error) {
     console.error(error);
-    res.status(500).json({ message: "Registration failed" });
+    return res.status(500).json({ message: "Registration failed" });
   }
 };
 
@@ -37,15 +40,17 @@ const login = async (req, res) => {
       expiresIn: "1h",
     });
 
-    res.json({ token });
+    return res.json({ token });
   } catch (error) {
     console.error(error);
-    res.status(500).json({ message: "Login failed" });
+    return res.status(500).json({ message: "Login failed" });
   }
 };
 
 const logout = (req, res) => {
-  res.json({ message: "Logged out (token should be deleted client-side)" });
+  return res.json({
+    message: "Logged out (token should be deleted client-side)",
+  });
 };
 
 module.exports = { register, login, logout };

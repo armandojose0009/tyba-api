@@ -18,10 +18,10 @@ const getRestaurants = async (req, res) => {
     );
 
     await Transaction.create({ userId, city, latitude, longitude });
-    res.json(restaurants);
+    return res.json(restaurants);
   } catch (error) {
     console.error(error);
-    res.status(500).json({ message: "Failed to fetch restaurants" });
+    return res.status(500).json({ message: "Failed to fetch restaurants" });
   }
 };
 

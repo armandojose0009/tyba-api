@@ -6,10 +6,10 @@ const getTransactions = async (req, res) => {
     const transactions = await Transaction.find({ userId }).sort({
       timestamp: -1,
     });
-    res.json(transactions);
+    return res.json(transactions);
   } catch (error) {
     console.error(error);
-    res.status(500).json({ message: "Failed to fetch transactions" });
+    return res.status(500).json({ message: "Failed to fetch transactions" });
   }
 };
 
