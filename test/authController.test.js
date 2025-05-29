@@ -27,6 +27,7 @@ describe("Auth Controllers", () => {
     req = {
       body: {},
       headers: {},
+      header: jest.fn(),
     };
     res = {
       status: jest.fn().mockReturnThis(),
@@ -123,10 +124,7 @@ describe("Auth Controllers", () => {
       };
       req.body = { email: mockUserData.email, password: "password123" };
 
-      const mockSelectResult = { ...mockUserData };
-      const mockFindOneResult = {
-        select: jest.fn().mockResolvedValue(mockSelectResult),
-      };
+      const mockFindOneResult = mockUserData;
       User.findOne.mockResolvedValue(mockFindOneResult);
 
       bcrypt.compare.mockResolvedValue(true);
@@ -141,7 +139,20 @@ describe("Auth Controllers", () => {
       await login(req, res);
 
       expect(User.findOne).toHaveBeenCalledWith({ email: mockUserData.email });
-
+      expect(bcrypt.compare).toHaveBeenCalledWith(
+        req.body.password,
+        mockUserData.password
+      );
+      expect(jwt.sign).toHaveBeenCalledWith(
+        { userId: mockUserData._id },
+        process.env.JWT_SECRET,
+        { expiresIn: "1h" }
+      );
+      expect(Token.create).toHaveBeenCalledWith({
+        userId: mockUserData._id,
+        token: mockToken,
+        status: "active",
+      });
       expect(res.json).toHaveBeenCalledWith({ token: mockToken });
     });
 
@@ -167,10 +178,7 @@ describe("Auth Controllers", () => {
       };
       req.body = { email: mockUserData.email, password: "wrongPassword" };
 
-      const mockSelectResult = { ...mockUserData };
-      const mockFindOneResult = {
-        select: jest.fn().mockResolvedValue(mockSelectResult),
-      };
+      const mockFindOneResult = mockUserData;
       User.findOne.mockResolvedValue(mockFindOneResult);
 
       bcrypt.compare.mockResolvedValue(false);
@@ -178,7 +186,10 @@ describe("Auth Controllers", () => {
       await login(req, res);
 
       expect(User.findOne).toHaveBeenCalledWith({ email: req.body.email });
-
+      expect(bcrypt.compare).toHaveBeenCalledWith(
+        req.body.password,
+        mockUserData.password
+      );
       expect(res.status).toHaveBeenCalledWith(401);
       expect(res.json).toHaveBeenCalledWith({ message: "Invalid credentials" });
       expect(jwt.sign).not.toHaveBeenCalled();
@@ -203,7 +214,7 @@ describe("Auth Controllers", () => {
   describe("logout", () => {
     it("should successfully log out a user by inactivating the token", async () => {
       const mockToken = "mockedAuthToken";
-      req.headers.authorization = `Bearer ${mockToken}`;
+      req.header.mockReturnValue(`Bearer ${mockToken}`);
       Token.findOneAndUpdate.mockResolvedValue({
         token: mockToken,
         status: "inactive",
@@ -211,6 +222,7 @@ describe("Auth Controllers", () => {
 
       await logout(req, res);
 
+      expect(req.header).toHaveBeenCalledWith("Authorization");
       expect(Token.findOneAndUpdate).toHaveBeenCalledWith(
         { token: mockToken },
         { status: "inactive" }
@@ -221,8 +233,10 @@ describe("Auth Controllers", () => {
     });
 
     it("should return a success message if no token is provided", async () => {
+      req.header.mockReturnValue(undefined);
       await logout(req, res);
 
+      expect(req.header).toHaveBeenCalledWith("Authorization");
       expect(Token.findOneAndUpdate).not.toHaveBeenCalled();
       expect(res.json).toHaveBeenCalledWith({
         message: "Logged out (no token provided)",
@@ -231,11 +245,12 @@ describe("Auth Controllers", () => {
 
     it("should return 404 if the token is not found", async () => {
       const mockToken = "mockedAuthToken";
-      req.headers.authorization = `Bearer ${mockToken}`;
+      req.header.mockReturnValue(`Bearer ${mockToken}`);
       Token.findOneAndUpdate.mockResolvedValue(null);
 
       await logout(req, res);
 
+      expect(req.header).toHaveBeenCalledWith("Authorization");
       expect(Token.findOneAndUpdate).toHaveBeenCalledWith(
         { token: mockToken },
         { status: "inactive" }
@@ -246,11 +261,12 @@ describe("Auth Controllers", () => {
 
     it("should return 500 if logout fails", async () => {
       const mockToken = "mockedAuthToken";
-      req.headers.authorization = `Bearer ${mockToken}`;
+      req.header.mockReturnValue(`Bearer ${mockToken}`);
       Token.findOneAndUpdate.mockRejectedValue(new Error("Database error"));
 
       await logout(req, res);
 
+      expect(req.header).toHaveBeenCalledWith("Authorization");
       expect(Token.findOneAndUpdate).toHaveBeenCalledWith(
         { token: mockToken },
         { status: "inactive" }
