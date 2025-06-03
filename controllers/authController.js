@@ -28,30 +28,25 @@ const register = async (req, res) => {
 };
 
 const login = async (req, res) => {
-  try {
-    const { email, password } = req.body;
+  const { email, password } = req.body;
 
-    const user = await User.findOne({ email });
+  const user = await User.findOne({ email });
 
-    if (!user || !(await bcrypt.compare(password, user.password))) {
-      return res.status(401).json({ message: "Invalid credentials" });
-    }
-
-    const token = jwt.sign({ userId: user._id }, process.env.JWT_SECRET, {
-      expiresIn: "1h",
-    });
-
-    await Token.create({
-      userId: user._id,
-      token: token,
-      status: "active",
-    });
-
-    return res.json({ token });
-  } catch (error) {
-    console.error(error);
-    return res.status(500).json({ message: "Login failed" });
+  if (!user || !(await bcrypt.compare(password, user.password))) {
+    return res.status(401).json({ message: "Invalid credentials" });
   }
+
+  const token = jwt.sign({ userId: user._id }, process.env.JWT_SECRET, {
+    expiresIn: "1h",
+  });
+
+  await Token.create({
+    userId: user._id,
+    token: token,
+    status: "active",
+  });
+
+  return res.json({ token });
 };
 
 const logout = async (req, res) => {
